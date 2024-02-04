@@ -6,6 +6,7 @@ from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_squared_error
 from sklearn.feature_selection import SequentialFeatureSelector
 import numpy as np
+import scipy as sp
 
 # Tytuł
 st.title('Przewidywanie Ceny Diamentów (Projekt PAD)')
@@ -41,6 +42,21 @@ df[categorical_cols] = df[categorical_cols].apply(lambda x: x.str.upper())
 
 # Zamiana zmiennych kategorycznych na dummy variables
 df = pd.get_dummies(df, columns=categorical_cols, drop_first=True)
+
+# Calculate the Z-scores for the 'price' column
+price_z_scores = sp.stats.zscore(df['price'])
+
+# Define a threshold for outlier detection
+threshold = 3
+
+# Find the rows where Z-scores for 'price' exceed the threshold
+outlier_indices = np.where(np.abs(price_z_scores) > threshold)
+
+# Remove the rows with outliers for 'price'
+df = df.drop(outlier_indices[0])
+
+# Reset the index of the cleaned DataFrame
+df.reset_index(drop=True, inplace=True)
 
 # Pokazanie ramki danych
 st.subheader('2. Czyszczenie danych')
