@@ -4,67 +4,109 @@ import plotly.express as px
 from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_squared_error
+from sklearn.feature_selection import SequentialFeatureSelector
 import numpy as np
 
+# Tytuł
+st.title('Przewidywanie Ceny Diamentów (Projekt PAD)')
+st.write("""
+Aplikacja używa modelu regresji liniowej aby przewidywać ceny diamentów na podstawie różnych zmiennych
+Możesz wybrać inne zmienne i sprawdzić jak są powiązane z ceną diamentu.
+""")
+
+# Ładowanie danych
+st.subheader('1. Załadowanie Danych')
 df = pd.read_csv("messy_data.csv", names=['carat', 'clarity', 'color', 'cut', 'x dimension', 'y dimension', 'z dimension', 'depth', 'table', 'price'])
 df.drop(index=0, inplace=True)
 
-# zamiana dziwnych i pustych wartości na NaN
+# Pokazanie niewyczyszczonych danych
+st.write("""
+Poniżej załadowane dane przed czyszczeniem:
+""")
+st.dataframe(df)
+
+# Zamiana pustych wartości na NaN
 df.replace(r'^\s*$', np.nan, regex=True, inplace=True)
 
-# konwersja na typ float
-df['carat'] = df['carat'].astype(float)
-df['x dimension'] = df['x dimension'].astype(float)
-df['y dimension'] = df['y dimension'].astype(float)
-df['z dimension'] = df['z dimension'].astype(float)
-df['depth'] = df['depth'].astype(float)
-df['table'] = df['table'].astype(float)
-df['price'] = df['price'].astype(float)
+# Konwersja numerycznych kolumn na float
+numeric_cols = ['carat', 'x dimension', 'y dimension', 'z dimension', 'depth', 'table', 'price']
+df[numeric_cols] = df[numeric_cols].apply(pd.to_numeric, errors='coerce')
 
-# zamiana na duże litery
-df['cut'] = df['cut'].str.upper()
-df['clarity'] = df['clarity'].str.upper()
-df['color'] = df['color'].str.upper()
+# Uzupełnienie NaN wartością średnią
+df[numeric_cols] = df[numeric_cols].fillna(df[numeric_cols].mean())
 
-# zamiana NaN na średnią tam, gdzie się da
-df['carat'].fillna(df["carat"].mean(), inplace=True)
-df['x dimension'].fillna(df["x dimension"].mean(), inplace=True)
-df['y dimension'].fillna(df["y dimension"].mean(), inplace=True)
-df['z dimension'].fillna(df["z dimension"].mean(), inplace=True)
-df['depth'].fillna(df["depth"].mean(), inplace=True)
-df['table'].fillna(df["table"].mean(), inplace=True)
-df['price'].fillna(df["price"].mean(), inplace=True)
-# Drop rows with missing values
-df = df.dropna()
+# Zamiana tekstów na duże litery
+categorical_cols = ['clarity', 'color', 'cut']
+df[categorical_cols] = df[categorical_cols].apply(lambda x: x.str.upper())
 
-# Convert categorical variables into dummy/indicator variables
-df = pd.get_dummies(df, columns=['clarity', 'color', 'cut'], drop_first=True)  # add drop_first=True to avoid dummy variable trap
+# Zamiana zmiennych kategorycznych na dummy variables
+df = pd.get_dummies(df, columns=categorical_cols, drop_first=True)
 
-# Split the data into features and target variable
+# Pokazanie ramki danych
+st.subheader('2. Czyszczenie danych')
+st.write("""
+Poniżej wyczyszczone i przetworzone dane, gotowe do modelowania:
+""")
+st.dataframe(df)
+
+# Rozdzielenie ramki danych na zmienne i target
 X = df.drop(columns=['price'])
 y = df['price']
 
-# Split the data into training and testing sets
+# Rozdzielenie na zestaw do uczenia i testowy
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-# Perform linear regression
+# Selekcja postępująca
+st.subheader('3. Wybór zmiennych za pomocą selekcji postępującej')
+st.write("""
+Używamy selekcji postępującej aby wybrać ważne zmienne.
+""")
+
+# Model regresji
 model = LinearRegression()
-model.fit(X_train, y_train)
 
-# Make predictions on the testing set
-y_pred = model.predict(X_test)
+# Selektor zmiennych
+sfs = SequentialFeatureSelector(model, n_features_to_select=5, direction='forward')
 
-# Calculate the Mean Squared Error
-mse = mean_squared_error(y_test, y_pred)
-st.write("Mean Squared Error:", mse)
+# Dopasowanie selekcji
+sfs.fit(X_train, y_train)
 
-# Add a selectbox to choose the column for x-axis
-selected_column = st.selectbox("Select column for X-axis", X.columns)
+# Pobierz indeksy
+selected_feature_indices = sfs.get_support(indices=True)
 
-# Plot results using Plotly Express
-fig = px.scatter(x=y_test, y=X_test[selected_column], labels={'x': 'Price', 'y': selected_column}, title=selected_column + ' vs Price')
+# Pobierz nazwy kolumn
+selected_features = X.columns[selected_feature_indices]
 
-# Add regression line
-fig.add_scatter(x=y_pred, y=X_test[selected_column], mode='markers', name='Predicted Price')
+# Podziel na dane treningowe i testowe
+X_train_selected = X_train.iloc[:, selected_feature_indices]
+X_test_selected = X_test.iloc[:, selected_feature_indices]
+
+# Dopasuj model
+model.fit(X_train_selected, y_train)
+
+# Szacuj na zestawie testowym
+y_pred_selected = model.predict(X_test_selected)
+
+# Policz błąd
+mse_selected = mean_squared_error(y_test, y_pred_selected)
+st.write("Błąd kwadratowy:", mse_selected)
+
+# Wizualizacja
+st.subheader('4. Wizualizacja')
+st.write("""
+Poniżej wykres który pokazuje zależność:
+""")
+
+# Selectbox
+selected_column = st.selectbox("Wybierz kolumnę dla X", X.columns, index=0)
+
+# Plotly Express
+fig = px.scatter(x=y_test, y=X_test[selected_column], labels={'x': 'Price', 'y': selected_column}, title=f'{selected_column} vs Price')
+
+# Checkbox
+show_regression = st.checkbox('Pokaż Regresję', value=False)
+
+if show_regression:
+    fig.add_scatter(x=y_pred_selected, y=X_test[selected_column], mode='markers', name='Przewidywana Cena')
 
 st.plotly_chart(fig)
